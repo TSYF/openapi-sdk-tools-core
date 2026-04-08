@@ -1,0 +1,20 @@
+{
+  "name": "@openapi-sdk-tools/core",
+  "version": "1.0.0",
+  "description": "Framework-agnostic error typing, exhaustive matching, and HTTP adapter for OpenAPI SDK generation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.5.4"
+  },
+  "peerDependencies": {
+    "neverthrow": "^8.0.0"
+  }
+}
