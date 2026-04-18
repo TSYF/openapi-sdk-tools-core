@@ -44,3 +44,5 @@ export {
 } from "./http/adapter";
 
 export { matchError, assertNever, parseServiceErrorGeneric } from "./utils";
+
+export { SdkResultAsync } from "./sdk-result";

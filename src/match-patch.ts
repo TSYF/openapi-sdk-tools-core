@@ -23,7 +23,7 @@ declare module "neverthrow" {
   interface ResultAsync<T, E> {
     match<A>(
       ok: (val: T) => A,
-      err: [E] extends [ServiceError] ? ExhaustiveErrorHandler<E, A> : never,
+      err: [E] extends [ServiceError] ? ExhaustiveErrorHandler<E, NoInfer<A>> : never,
     ): Promise<A>;
   }
 }
