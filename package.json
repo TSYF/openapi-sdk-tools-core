@@ -1,6 +1,6 @@
 {
   "name": "@openapi-sdk-tools/core",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Framework-agnostic error typing, exhaustive matching, and HTTP adapter for OpenAPI SDK generation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
