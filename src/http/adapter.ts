@@ -1,5 +1,3 @@
-import { ResultAsync } from "neverthrow";
-
 // ─── Request / Error shapes ───────────────────────────────────────────────────
 
 export interface RequestOptions {
@@ -16,32 +14,43 @@ export interface HttpRequestError {
   message: string;
 }
 
+export function isHttpRequestError(error: unknown): error is HttpRequestError {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    "body" in error &&
+    "message" in error
+  );
+}
+
 // ─── HttpAdapter interface ────────────────────────────────────────────────────
 
+/**
+ * Result-library-agnostic HTTP transport.
+ *
+ * Implementations resolve with the parsed response body or reject with
+ * HttpRequestError. The kernel wraps the promise in whatever result backend
+ * the client has configured.
+ */
 export interface HttpAdapter {
-  request<T>(options: RequestOptions): ResultAsync<T, HttpRequestError>;
+  request<T>(options: RequestOptions): Promise<T>;
 }
 
 // ─── FetchAdapter — default implementation using native fetch ─────────────────
 
 export class FetchAdapter implements HttpAdapter {
-  request<T>(options: RequestOptions): ResultAsync<T, HttpRequestError> {
-    return ResultAsync.fromPromise(
-      this._doRequest<T>(options),
-      (e: unknown): HttpRequestError => {
-        // Already shaped by _doRequest
-        if (
-          e &&
-          typeof e === "object" &&
-          "status" in e &&
-          "body" in e &&
-          "message" in e
-        ) {
-          return e as HttpRequestError;
-        }
-        return { status: 0, body: null, message: String(e) };
-      },
-    );
+  async request<T>(options: RequestOptions): Promise<T> {
+    try {
+      return await this._doRequest<T>(options);
+    } catch (error) {
+      if (isHttpRequestError(error)) throw error;
+      throw {
+        status: 0,
+        body: null,
+        message: String(error),
+      } satisfies HttpRequestError;
+    }
   }
 
   private async _doRequest<T>(options: RequestOptions): Promise<T> {

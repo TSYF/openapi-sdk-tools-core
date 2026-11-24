@@ -1,6 +1,3 @@
-// Side-effect: patches neverthrow's .match() to accept exhaustive object handlers
-import "./match-patch";
-
 export {
   type ErrorCode,
   type AppHttpResult,
@@ -10,10 +7,30 @@ export {
 } from "./types";
 
 export type {
-  ExhaustiveErrorHandler,
-  ErrorMatchContext,
   ErrorMatchSource,
-} from "./match-patch";
+  ErrorMatchContext,
+  ExhaustiveErrorHandler,
+  ErrorHandler,
+  MatchContext,
+  MatchStrategy,
+} from "./kernel/match";
+
+export {
+  defaultMatchStrategy,
+  getDiscriminantFromPath,
+  getStatusFromError,
+} from "./kernel/match";
+
+export type { ResultLike, ResultBackend } from "./kernel/result";
+export { defaultResultBackend } from "./kernel/result";
+
+export type { ErrorDecoder } from "./kernel/error-decoder";
+export { identityErrorDecoder, mapError } from "./kernel/error-decoder";
+
+export type { SdkPlugin } from "./kernel/plugin";
+export { defineSdkPlugin } from "./kernel/plugin";
+
+export { SdkKernel } from "./kernel/kernel";
 
 export { STATUS_TO_CODE_MAP, codeToStatus } from "./maps";
 
@@ -22,6 +39,12 @@ export {
   type RequestOptions,
   type HttpRequestError,
   FetchAdapter,
+  isHttpRequestError,
 } from "./http/adapter";
 
-export { SdkResultAsync } from "./sdk-result";
+export {
+  SdkResultAsync,
+  isSdkResult,
+  SDK_RESULT_BRAND,
+  type SdkResultOptions,
+} from "./sdk-result";

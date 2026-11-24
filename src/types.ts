@@ -1,3 +1,5 @@
+import type { ResultLike } from "./kernel/result";
+
 // ─── Error Code ↔ Status Mapping ──────────────────────────────────────────────
 
 export const ERROR_CODE_STATUS_MAP = {
@@ -46,7 +48,7 @@ export type ServiceError = unknown;
 export type AppHttpResult<
   T = Record<string, unknown>,
   E extends ServiceError = ServiceError,
-> = import("neverthrow").ResultAsync<T, E>;
+> = ResultLike<T, E>;
 
 // ─── SDK Error Mapper ────────────────────────────────────────────────────────
 

@@ -1,167 +1,112 @@
-import { ResultAsync } from "neverthrow";
-import type { ExhaustiveErrorHandler, ErrorMatchContext } from "./match-patch";
-import { STATUS_TO_CODE_MAP } from "./maps";
-import { __SDK_UNDECLARED_ERROR__ } from "./types";
+import { SdkKernel } from "./kernel/kernel";
+import type { ErrorHandler, MatchContext } from "./kernel/match";
+import type { ResultLike } from "./kernel/result";
 
-// ─── Path-array lookup helper ───────────────────────────────────────────────────
-
-function getDiscriminantFromPath(
-  error: unknown,
-  path: string[],
-): string | undefined {
-  if (!path || path.length === 0) return undefined;
-  let current: unknown = error;
-  for (const segment of path) {
-    if (current === null || current === undefined) return undefined;
-    current = (current as Record<string, unknown>)?.[segment];
-  }
-  return typeof current === "string" ? current : undefined;
-}
-
-// ─── Get status from error ─────────────────────────────────────────────────────
-
-function getStatusFromError(error: unknown): number | undefined {
-  if (error && typeof error === "object") {
-    const status = (error as Record<string, unknown>).status;
-    return typeof status === "number" ? status : undefined;
-  }
-  return undefined;
-}
+// ─── Brand ────────────────────────────────────────────────────────────────────
 
 /**
- * Wraps neverthrow's ResultAsync to enforce exhaustive error handling.
- * `.match()` requires a handler object covering every error code in TCode,
- * plus a mandatory wildcard `_` handler.
+ * Cross-copy brand. Symbol.for keeps the check working when multiple copies of
+ * @openapi-sdk-tools/core exist in an application.
+ */
+export const SDK_RESULT_BRAND: unique symbol = Symbol.for(
+  "@openapi-sdk-tools/core/SdkResultAsync",
+);
+
+export function isSdkResult(
+  value: unknown,
+): value is SdkResultAsync<unknown, string, unknown> {
+  return (
+    typeof value === "object" && value !== null && SDK_RESULT_BRAND in value
+  );
+}
+
+// ─── Options ──────────────────────────────────────────────────────────────────
+
+export interface SdkResultOptions<TCode extends string = string> {
+  discriminatorKey?: string[];
+  declaredCodes?: readonly TCode[];
+}
+
+// ─── SdkResultAsync ───────────────────────────────────────────────────────────
+
+/**
+ * Public result facade returned by generated SDK methods.
+ *
+ * The facade is plugin-agnostic: `map`/`mapErr`/`andThen`/`orElse` delegate to
+ * the plugin-provided ResultLike, and `.match()` delegates object handlers to
+ * the kernel's MatchStrategy. Function handlers bypass the strategy and are
+ * handled directly by the backend, which is the escape hatch for ts-pattern,
+ * Effect Match, and custom matching.
  */
 export class SdkResultAsync<
   T,
   TCode extends string = string,
   TError = unknown,
 > {
+  readonly [SDK_RESULT_BRAND] = true;
+
   constructor(
-    readonly _result: ResultAsync<T, TError>,
-    private readonly _discriminatorKey: string[] = ["code"],
-    private readonly _declaredCodes: readonly TCode[] = [],
+    readonly _result: ResultLike<T, TError>,
+    private readonly _kernel: SdkKernel = new SdkKernel(),
+    private readonly _options: SdkResultOptions<TCode> = {},
   ) {}
 
+  /** Native result provided by the active backend. */
+  get native(): ResultLike<T, TError> {
+    return this._result;
+  }
+
   match<A>(
-    ok: (val: T) => A,
-    err: ExhaustiveErrorHandler<TCode, TError, NoInfer<A>>,
+    ok: (value: T) => A,
+    handlers: ErrorHandler<TCode, TError, NoInfer<A>>,
   ): Promise<A> {
-    const discriminatorKey = this._discriminatorKey;
-    const declaredCodes = this._declaredCodes;
+    if (typeof handlers === "function") {
+      return this._result.match(ok, handlers);
+    }
 
-    return this._result.match(ok, (e) => {
-      // Step 1: Try discriminator path lookup
-      const discriminant = getDiscriminantFromPath(e, discriminatorKey);
-      if (discriminant !== undefined && discriminant in err) {
-        return (err as Record<string, (ctx: ErrorMatchContext<TError>) => A>)[
-          discriminant
-        ]({
-          error: e,
-          metadata: {
-            source: "discriminator",
-            discriminatorKey,
-            discriminant,
-          },
-        });
-      }
+    const context: MatchContext<TCode, TError> = {
+      declaredCodes: this._options.declaredCodes ?? [],
+      discriminatorKey: this._options.discriminatorKey ?? ["code"],
+    };
 
-      // Step 2: Try status code lookup (scoped to declared codes)
-      const status = getStatusFromError(e);
-      if (status !== undefined) {
-        const statusCode = STATUS_TO_CODE_MAP[status];
-        if (
-          statusCode !== undefined &&
-          declaredCodes.includes(statusCode as TCode)
-        ) {
-          return (err as Record<string, (ctx: ErrorMatchContext<TError>) => A>)[
-            statusCode
-          ]({
-            error: e,
-            metadata: {
-              source: "status",
-              discriminatorKey,
-              status,
-            },
-          });
-        }
-      }
-
-      // Step 3: Try __SDK_UNDECLARED_ERROR__ handler
-      const undeclaredHandler = (
-        err as Record<string, (ctx: ErrorMatchContext<TError>) => A>
-      )[__SDK_UNDECLARED_ERROR__];
-      if (undeclaredHandler) {
-        return undeclaredHandler({
-          error: e,
-          metadata: {
-            source: "undeclared",
-            discriminatorKey,
-            discriminant,
-            status,
-          },
-        });
-      }
-
-      // Step 4: Fall back to wildcard `_` handler
-      return (err as Record<string, (ctx: ErrorMatchContext<TError>) => A>)._({
-        error: e,
-        metadata: {
-          source: "wildcard",
-          discriminatorKey,
-          discriminant,
-          status,
-        },
-      });
-    });
+    return this._kernel.match.match(this._result, ok, handlers, context);
   }
 
-  map<U>(f: (val: T) => U): SdkResultAsync<U, TCode, TError> {
-    return new SdkResultAsync(
-      this._result.map(f),
-      this._discriminatorKey,
-      this._declaredCodes,
-    );
+  map<U>(f: (value: T) => U): SdkResultAsync<U, TCode, TError> {
+    return new SdkResultAsync(this._result.map(f), this._kernel, this._options);
   }
 
-  mapErr<F>(f: (e: TError) => F): SdkResultAsync<T, TCode, F> {
+  mapErr<F>(f: (error: TError) => F): SdkResultAsync<T, TCode, F> {
     return new SdkResultAsync(
       this._result.mapErr(f),
-      this._discriminatorKey,
-      this._declaredCodes,
+      this._kernel,
+      this._options,
     );
   }
 
   andThen<U, F = never>(
-    f: (val: T) => SdkResultAsync<U, TCode, F> | ResultAsync<U, F>,
+    f: (value: T) => SdkResultAsync<U, TCode, F> | ResultLike<U, F>,
   ): SdkResultAsync<U, TCode, TError | F> {
     return new SdkResultAsync(
-      this._result.andThen((v) => {
-        const r = f(v);
-        return (r instanceof SdkResultAsync ? r._result : r) as ResultAsync<
-          U,
-          F
-        >;
-      }) as unknown as ResultAsync<U, TError | F>,
-      this._discriminatorKey,
-      this._declaredCodes,
+      this._result.andThen((value) => {
+        const next = f(value);
+        return (isSdkResult(next) ? next._result : next) as ResultLike<U, F>;
+      }),
+      this._kernel,
+      this._options,
     );
   }
 
   orElse<F = never>(
-    f: (e: TError) => SdkResultAsync<T, TCode, F> | ResultAsync<T, F>,
+    f: (error: TError) => SdkResultAsync<T, TCode, F> | ResultLike<T, F>,
   ): SdkResultAsync<T, TCode, F> {
     return new SdkResultAsync(
-      this._result.orElse((e) => {
-        const r = f(e);
-        return (r instanceof SdkResultAsync ? r._result : r) as ResultAsync<
-          T,
-          F
-        >;
-      }) as unknown as ResultAsync<T, F>,
-      this._discriminatorKey,
-      this._declaredCodes,
+      this._result.orElse((error) => {
+        const next = f(error);
+        return (isSdkResult(next) ? next._result : next) as ResultLike<T, F>;
+      }),
+      this._kernel,
+      this._options,
     );
   }
 }
